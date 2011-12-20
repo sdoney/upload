@@ -77,6 +77,20 @@ Using the above setup, uploaded files cannot be deleted. To do so, a field must 
 );
 </code></pre>
 
+Multipage PDF example (uploaded and multipage files can be deleted, make sure to enable 'createPageThumbs')
+
+<pre><code>CREATE table users (
+	`id` int(10) unsigned NOT NULL auto_increment,
+	`username` varchar(20) NOT NULL,
+	`photo` varchar(255) DEFAULT NULL,
+	`photo_dir` varchar(255) DEFAULT NULL,
+	`page_count` int(10) unsigned DEFAULT NULL
+	PRIMARY KEY (`id`)
+);
+</code></pre>
+
+
+
 <pre><code><?php
 class User extends AppModel {
 	var $name = 'User';
@@ -222,6 +236,8 @@ h2. Behavior options:
 *** {DS}: Replaced by a @DIRECTORY_SEPARATOR@
 *** {model}: Replaced by the Model Alias
 *** {field}: Replaced by the field name
+* @createPageThumbs@: Create page thumbnails
+** Default: (boolean) @false@
 
 h2. Thumbnail Sizes and Styles
 

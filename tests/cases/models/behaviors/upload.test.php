@@ -139,6 +139,7 @@ class UploadBehaviorTest extends CakeTestCase {
 				'dir' => 2,
 				'type' => 'image/png',
 				'size' => 8192,
+				'page_count' => null,
 				'other_field' => null
 			)
 		);
@@ -694,16 +695,16 @@ class UploadBehaviorTest extends CakeTestCase {
 			)
 		));
 
-		$result = $this->TestUpload->Behaviors->Upload->_isMedia($this->TestUpload, 'application/pdf');
+		$result = $this->TestUpload->Behaviors->Upload->isMedia($this->TestUpload, 'application/pdf');
 		$this->assertTrue($result);
 
-		$result = $this->TestUpload->Behaviors->Upload->_isMedia($this->TestUpload, 'application/postscript');
+		$result = $this->TestUpload->Behaviors->Upload->isMedia($this->TestUpload, 'application/postscript');
 		$this->assertTrue($result);
 
-		$result = $this->TestUpload->Behaviors->Upload->_isMedia($this->TestUpload, 'application/zip');
+		$result = $this->TestUpload->Behaviors->Upload->isMedia($this->TestUpload, 'application/zip');
 		$this->assertFalse($result);
 
-		$result = $this->TestUpload->Behaviors->Upload->_isMedia($this->TestUpload, 'image/jpeg');
+		$result = $this->TestUpload->Behaviors->Upload->isMedia($this->TestUpload, 'image/jpeg');
 		$this->assertFalse($result);
 	}
 

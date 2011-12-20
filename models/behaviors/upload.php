@@ -44,6 +44,7 @@ class UploadBehavior extends ModelBehavior {
 		'mediaThumbnailType'=> 'png',
 		'saveDir'			=> true,
 		'thumbnailPath'		=> false,
+		'createPageThumbs'		=> false
 	);
 
 	var $_imageMimetypes = array(
@@ -159,6 +160,28 @@ class UploadBehavior extends ModelBehavior {
 	}
 
 /**
+ * Convenience method for reading UploadBehavior settings
+ *
+ * @param AppModel $model Model instance
+ * @param string $field Name of field being modified
+ * @param mixed $one A string or an array of data.
+ * @return void
+ */
+	function readUploadSettings(&$model, $field, $one) {
+
+		$data = array();
+
+		if (is_array($one)) {
+				foreach ($one as $key) {
+					$data[$key] = $this->settings[$model->alias][$field][$key];
+				}
+		} else {
+			$data = $this->settings[$model->alias][$field][$one];
+		}
+		return $data;
+	}
+
+/**
  * Before save method. Called before all saves
  *
  * Handles setup of file uploads
@@ -248,12 +271,16 @@ class UploadBehavior extends ModelBehavior {
 			}
 
 			$this->_mkPath($thumbnailPath);
-			$this->_createThumbnails($model, $field, $path, $thumbnailPath);
+			$pageCount = $this->_createThumbnails($model, $field, $path, $thumbnailPath);
+
 			if ($model->hasField($options['fields']['dir'])) {
 				if ($created && $options['pathMethod'] == '_getPathFlat') {
 				} else if ($options['saveDir']) {
 					$temp[$model->alias][$options['fields']['dir']] = "\"{$tempPath}\"";
 				}
+			}
+			if ($options['createPageThumbs'] && $model->hasField('page_count')) {
+				$temp[$model->alias]['page_count'] = $pageCount;
 			}
 		}
 
@@ -700,9 +727,10 @@ class UploadBehavior extends ModelBehavior {
 	}
 
 	function _resizeImagick(&$model, $field, $path, $style, $geometry, $thumbnailPath) {
+
 		$srcFile  = $path . $model->data[$model->alias][$field];
 
-		$isMedia = $this->_isMedia(&$model, $this->runtime[$model->alias][$field]['type']);
+		$isMedia = $this->isMedia(&$model, $this->runtime[$model->alias][$field]['type']);
 
 		$pathInfo = $this->_pathinfo($srcFile);
 
@@ -712,64 +740,87 @@ class UploadBehavior extends ModelBehavior {
 
 		$image    = new imagick();
 
-		if ($isMedia) {
-			$image->setResolution(300, 300);
-			$srcFile = $srcFile.'[0]';
-		}
+		$allPages = true;
 
 		$image->readImage($srcFile);
-		$height   = $image->getImageHeight();
-		$width    = $image->getImageWidth();
-
-		if (preg_match('/^\\[[\\d]+x[\\d]+\\]$/', $geometry)) {
-			// resize with banding
-			list($destW, $destH) = explode('x', substr($geometry, 1, strlen($geometry)-2));
-			$image->thumbnailImage($destW, $destH);
-		} elseif (preg_match('/^[\\d]+x[\\d]+$/', $geometry)) {
-			// cropped resize (best fit)
-			list($destW, $destH) = explode('x', $geometry);
-			$image->cropThumbnailImage($destW, $destH);
-		} elseif (preg_match('/^[\\d]+w$/', $geometry)) {
-			// calculate heigh according to aspect ratio
-			$image->thumbnailImage((int)$geometry-1, 0);
-		} elseif (preg_match('/^[\\d]+h$/', $geometry)) {
-			// calculate width according to aspect ratio
-			$image->thumbnailImage(0, (int)$geometry-1);
-		} elseif (preg_match('/^[\\d]+l$/', $geometry)) {
-			// calculate shortest side according to aspect ratio
-			$destW = 0;
-			$destH = 0;
-			$destW = ($width > $height) ? (int)$geometry-1 : 0;
-			$destH = ($width > $height) ? 0 : (int)$geometry-1;
-
-			$imagickVersion = phpversion('imagick');
-			$image->thumbnailImage($destW, $destH, !($imagickVersion[0] == 3));
-		}
-
-		$image->setImageCompressionQuality($this->settings[$model->alias][$field]['thumbnailQuality']);
-
-		$thumbnailType = $this->settings[$model->alias][$field]['thumbnailType'];
-		if ($thumbnailType && is_string($thumbnailType)) {
-			$image->setImageFormat($thumbnailType);
-		}
-
-		if ($isMedia) {
-			$thumbnailType = $this->settings[$model->alias][$field]['mediaThumbnailType'];
-
-			if (!$thumbnailType || !is_string($thumbnailType)) {
-				$thumbnailType = 'png';
-			}
-
-			$image->setImageFormat($thumbnailType);
-		}
-
-		$destFile = $thumbnailPath.$style . '_'.$pathInfo['filename'].".{$thumbnailType}";
-		
-		if (!$image->writeImage($destFile)) return false;
+		$pageCount = $image->getNumberImages();
 
 		$image->clear();
+
+		$i=0;
+		while ($i <= $pageCount-1) {
+
+			if ($isMedia) {
+				$image->setResolution(300, 300);
+				$srcFilePage = $srcFile.'['.$i.']';
+				$image->readImage($srcFilePage);
+			} else {
+				$image->readImage($srcFile);
+			}
+
+			$height   = $image->getImageHeight();
+			$width    = $image->getImageWidth();
+
+			//if allPages false, stop after one page
+
+
+			if (preg_match('/^\\[[\\d]+x[\\d]+\\]$/', $geometry)) {
+				// resize with banding
+				list($destW, $destH) = explode('x', substr($geometry, 1, strlen($geometry)-2));
+				$image->thumbnailImage($destW, $destH);
+			} elseif (preg_match('/^[\\d]+x[\\d]+$/', $geometry)) {
+				// cropped resize (best fit)
+				list($destW, $destH) = explode('x', $geometry);
+				$image->cropThumbnailImage($destW, $destH);
+			} elseif (preg_match('/^[\\d]+w$/', $geometry)) {
+				// calculate heigh according to aspect ratio
+				$image->thumbnailImage((int)$geometry-1, 0);
+			} elseif (preg_match('/^[\\d]+h$/', $geometry)) {
+				// calculate width according to aspect ratio
+				$image->thumbnailImage(0, (int)$geometry-1);
+			} elseif (preg_match('/^[\\d]+l$/', $geometry)) {
+				// calculate shortest side according to aspect ratio
+				$destW = 0;
+				$destH = 0;
+				$destW = ($width > $height) ? (int)$geometry-1 : 0;
+				$destH = ($width > $height) ? 0 : (int)$geometry-1;
+
+				$imagickVersion = phpversion('imagick');
+				$image->thumbnailImage($destW, $destH, !($imagickVersion[0] == 3));
+			}
+
+			$image->setImageCompressionQuality($this->settings[$model->alias][$field]['thumbnailQuality']);
+
+			$thumbnailType = $this->settings[$model->alias][$field]['thumbnailType'];
+			if ($thumbnailType && is_string($thumbnailType)) {
+				$image->setImageFormat($thumbnailType);
+			}
+
+			$destFile = $thumbnailPath.$style . '_'.$pathInfo['filename'].".{$thumbnailType}";
+
+			if ($isMedia) {
+				$thumbnailType = $this->settings[$model->alias][$field]['mediaThumbnailType'];
+
+				if (!$thumbnailType || !is_string($thumbnailType)) {
+					$thumbnailType = 'png';
+				}
+
+				$image->setImageFormat($thumbnailType);
+
+				$destFile = $thumbnailPath.$style . '_'.$pathInfo['filename'].'_'.$i.".{$thumbnailType}";
+			}
+
+			if (!$image->writeImage($destFile)) return false;
+
+			if (!$allPages) {
+				$i = $pageCount-1;
+			}
+
+			$i++;
+		}
+		$image->clear();
 		$image->destroy();
-		return true;
+		return $pageCount;
 	}
 
 	function _resizePhp(&$model, $field, $path, $style, $geometry, $thumbnailPath) {
@@ -942,17 +993,19 @@ class UploadBehavior extends ModelBehavior {
 
 	function _createThumbnails(&$model, $field, $path, $thumbnailPath) {
 		if (($this->_isImage($model, $this->runtime[$model->alias][$field]['type'])
-		|| $this->_isMedia($model, $this->runtime[$model->alias][$field]['type']))
+		|| $this->isMedia($model, $this->runtime[$model->alias][$field]['type']))
 		&& $this->settings[$model->alias][$field]['thumbnails']
 		&& !empty($this->settings[$model->alias][$field]['thumbsizes'])) {
 			// Create thumbnails
 			$method = $this->settings[$model->alias][$field]['thumbnailMethod'];
 
 			foreach ($this->settings[$model->alias][$field]['thumbsizes'] as $style => $geometry) {
-				if (!$this->$method($model, $field, $path, $style, $geometry, $thumbnailPath)) {
+				$result = $this->$method($model, $field, $path, $style, $geometry, $thumbnailPath);
+				if (!$result) {
 					$model->invalidate($field, 'resizeFail');
 				}
 			}
+			return $result;
 		}
 	}
 
@@ -960,7 +1013,7 @@ class UploadBehavior extends ModelBehavior {
 		return in_array($mimetype, $this->_imageMimetypes);
 	}
 
-	function _isMedia(&$model, $mimetype) {
+	function isMedia(&$model, $mimetype) {
 		return in_array($mimetype, $this->_mediaMimetypes);
 	}
 
@@ -975,13 +1028,13 @@ class UploadBehavior extends ModelBehavior {
 		$filePathDir = ROOT . DS . APP_DIR . DS . $this->settings[$model->alias][$field]['path'] . $data[$model->alias][$options['fields']['dir']] . DS;
 		$filePath = $filePathDir.$data[$model->alias][$field];
 		$pathInfo = $this->_pathinfo($filePath);
-	
+
 		$this->__filesToRemove[$model->alias] = array();
 		$this->__filesToRemove[$model->alias][] = $filePath;
 
 $mimeType = $this->_getMimeType($filePath);
 
-		$isMedia = $this->_isMedia($model, $mimeType);
+		$isMedia = $this->isMedia($model, $mimeType);
 
 		foreach ($options['thumbsizes'] as $style => $geometry) {
 
@@ -1002,7 +1055,16 @@ $mimeType = $this->_getMimeType($filePath);
 				$filename = $pathInfo['basename'];
 			}
 
-			$this->__filesToRemove[$model->alias][] = $filePath.$filename;
+			if (!empty($data[$model->alias]['page_count'])) {
+				$i = 0;
+
+				while ($i <= $data[$model->alias]['page_count']-1) {
+					$this->__filesToRemove[$model->alias][] = $filePath.str_replace('.', '_'.$i.'.', $filename);
+					$i++;
+				}
+			} else {
+				$this->__filesToRemove[$model->alias][] = $filePath.$filename;
+			}
 
 		}
 		return $this->__filesToRemove;
